@@ -1,80 +1,80 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>🌿 Ambient Sound Mixer</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,600;14..32,700&display=swap" rel="stylesheet" />
+    <title>🎧 Ambient Pro Studio</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="style.css" />
 </head>
 <body>
     <div class="app">
         <!-- Header -->
         <header>
-            <h1>🌿 Ambient Mixer</h1>
-            <p>Mix your perfect background soundscape</p>
+            <div class="header-left">
+                <h1>🎧 Ambient Pro</h1>
+                <span class="badge">Studio</span>
+            </div>
+            <div class="header-center">
+                <button id="play-btn" class="btn-play">▶ Play</button>
+                <span id="timer-display" class="timer-display">00:00</span>
+            </div>
+            <div class="header-right">
+                <button id="preset-save-btn" class="tool-btn">💾 Save Preset</button>
+                <button id="preset-load-btn" class="tool-btn">📂 Load</button>
+                <button id="export-btn" class="tool-btn">📤 Export</button>
+                <button id="import-btn" class="tool-btn">📥 Import</button>
+            </div>
         </header>
 
-        <!-- Master Controls -->
-        <div class="master-controls">
-            <button id="play-btn" class="btn-play">▶ Play</button>
-            <div class="master-volume">
-                <label for="master-gain">Master</label>
-                <input type="range" id="master-gain" min="0" max="1" step="0.01" value="0.7" />
+        <!-- Master Controls (EQ + Reverb + Sleep) -->
+        <section class="master-section">
+            <div class="master-controls">
+                <div class="control-group">
+                    <label>Master Volume</label>
+                    <input type="range" id="master-volume" min="0" max="1" step="0.01" value="0.8" />
+                </div>
+                <div class="control-group">
+                    <label>Reverb (Room)</label>
+                    <input type="range" id="master-reverb" min="0" max="1" step="0.01" value="0.3" />
+                </div>
+                <div class="control-group eq-group">
+                    <label>EQ</label>
+                    <div class="eq-knobs">
+                        <div><span>Low</span><input type="range" id="eq-low" min="-12" max="12" value="0" step="0.5" /></div>
+                        <div><span>Mid</span><input type="range" id="eq-mid" min="-12" max="12" value="0" step="0.5" /></div>
+                        <div><span>High</span><input type="range" id="eq-high" min="-12" max="12" value="0" step="0.5" /></div>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label>Sleep Timer (min)</label>
+                    <div class="sleep-group">
+                        <input type="number" id="sleep-minutes" value="0" min="0" max="120" />
+                        <button id="sleep-set-btn" class="tool-btn small">Set</button>
+                    </div>
+                    <span id="sleep-status" class="sleep-status">Off</span>
+                </div>
             </div>
-        </div>
+        </section>
 
-        <!-- Sound Channels -->
-        <div class="channels" id="channels-container">
-            <!-- Channel 1: Rain -->
-            <div class="channel" data-sound="rain">
-                <div class="channel-icon">🌧️</div>
-                <div class="channel-info">
-                    <span class="channel-name">Rain</span>
-                    <span class="channel-status" id="status-rain">⏸</span>
-                </div>
-                <input type="range" class="channel-slider" id="slider-rain" min="0" max="1" step="0.01" value="0.3" />
+        <!-- Channel Strips (Scrollable) -->
+        <section class="channels-section">
+            <div class="channels-container" id="channels-container">
+                <!-- Injected by JS -->
             </div>
-            <!-- Channel 2: Ocean -->
-            <div class="channel" data-sound="ocean">
-                <div class="channel-icon">🌊</div>
-                <div class="channel-info">
-                    <span class="channel-name">Ocean</span>
-                    <span class="channel-status" id="status-ocean">⏸</span>
-                </div>
-                <input type="range" class="channel-slider" id="slider-ocean" min="0" max="1" step="0.01" value="0.3" />
-            </div>
-            <!-- Channel 3: Fireplace -->
-            <div class="channel" data-sound="fireplace">
-                <div class="channel-icon">🔥</div>
-                <div class="channel-info">
-                    <span class="channel-name">Fireplace</span>
-                    <span class="channel-status" id="status-fireplace">⏸</span>
-                </div>
-                <input type="range" class="channel-slider" id="slider-fireplace" min="0" max="1" step="0.01" value="0.3" />
-            </div>
-            <!-- Channel 4: Coffee Shop -->
-            <div class="channel" data-sound="coffee">
-                <div class="channel-icon">☕</div>
-                <div class="channel-info">
-                    <span class="channel-name">Coffee Shop</span>
-                    <span class="channel-status" id="status-coffee">⏸</span>
-                </div>
-                <input type="range" class="channel-slider" id="slider-coffee" min="0" max="1" step="0.01" value="0.3" />
-            </div>
-        </div>
+        </section>
 
-        <!-- Visualizer / Waveform -->
-        <div class="visualizer">
+        <!-- Dual Visualizer -->
+        <section class="visualizer-section">
             <canvas id="visualizer-canvas"></canvas>
-        </div>
+        </section>
 
         <!-- Footer -->
         <footer>
-            <p>🎧 Grab your headphones for the full experience</p>
+            <p>⚡ All sounds synthesized in‑browser • No external files</p>
         </footer>
     </div>
 
-    <script src="script.js"></script>
+    <script type="module" src="script.js"></script>
 </body>
 </html>
