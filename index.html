@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -20,14 +20,14 @@
                 <span id="timer-display" class="timer-display">00:00</span>
             </div>
             <div class="header-right">
-                <button id="preset-save-btn" class="tool-btn">💾 Save Preset</button>
+                <button id="preset-save-btn" class="tool-btn">💾 Save</button>
                 <button id="preset-load-btn" class="tool-btn">📂 Load</button>
                 <button id="export-btn" class="tool-btn">📤 Export</button>
                 <button id="import-btn" class="tool-btn">📥 Import</button>
             </div>
         </header>
 
-        <!-- Master Controls (EQ + Reverb + Sleep) -->
+        <!-- Master Controls -->
         <section class="master-section">
             <div class="master-controls">
                 <div class="control-group">
@@ -57,14 +57,14 @@
             </div>
         </section>
 
-        <!-- Channel Strips (Scrollable) -->
+        <!-- Channels -->
         <section class="channels-section">
             <div class="channels-container" id="channels-container">
                 <!-- Injected by JS -->
             </div>
         </section>
 
-        <!-- Dual Visualizer -->
+        <!-- Visualizer -->
         <section class="visualizer-section">
             <canvas id="visualizer-canvas"></canvas>
         </section>
@@ -75,6 +75,6 @@
         </footer>
     </div>
 
-    <script type="module" src="script.js"></script>
+    <script src="script.js"></script>
 </body>
 </html>
