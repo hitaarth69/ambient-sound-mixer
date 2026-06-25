@@ -1,60 +1,89 @@
-// ----- DOM References -----
-const playBtn = document.getElementById('play-btn');
-const masterGainSlider = document.getElementById('master-gain');
-const sliders = {
-    rain: document.getElementById('slider-rain'),
-    ocean: document.getElementById('slider-ocean'),
-    fireplace: document.getElementById('slider-fireplace'),
-    coffee: document.getElementById('slider-coffee'),
-};
-const statusEls = {
-    rain: document.getElementById('status-rain'),
-    ocean: document.getElementById('status-ocean'),
-    fireplace: document.getElementById('status-fireplace'),
-    coffee: document.getElementById('status-coffee'),
-};
-const canvas = document.getElementById('visualizer-canvas');
-const ctx = canvas.getContext('2d');
+import { PresetDB } from './db.js';
 
-// ----- Audio Context & Nodes -----
+// ----- DOM Refs -----
+const channelsContainer = document.getElementById('channels-container');
+const playBtn = document.getElementById('play-btn');
+const timerDisplay = document.getElementById('timer-display');
+const masterVolumeSlider = document.getElementById('master-volume');
+const masterReverbSlider = document.getElementById('master-reverb');
+const eqLowSlider = document.getElementById('eq-low');
+const eqMidSlider = document.getElementById('eq-mid');
+const eqHighSlider = document.getElementById('eq-high');
+const sleepMinutesInput = document.getElementById('sleep-minutes');
+const sleepSetBtn = document.getElementById('sleep-set-btn');
+const sleepStatus = document.getElementById('sleep-status');
+const visualizerCanvas = document.getElementById('visualizer-canvas');
+const presetSaveBtn = document.getElementById('preset-save-btn');
+const presetLoadBtn = document.getElementById('preset-load-btn');
+const exportBtn = document.getElementById('export-btn');
+const importBtn = document.getElementById('import-btn');
+
+// ----- Audio Context -----
 let audioCtx = null;
 let masterGainNode = null;
+let reverbNode = null;
+let reverbGainNode = null;
+let dryGainNode = null;
+let eqLowNode = null;
+let eqMidNode = null;
+let eqHighNode = null;
+let masterAnalyser = null;
 let isPlaying = false;
 
-// Store all sound chains
-const sounds = {};
+// ----- Channel State -----
+let channels = [];
+let channelNodes = {};
 
-// ----- Noise Generators -----
-function createNoiseBuffer(context, type = 'white', duration = 2) {
+// ----- Sleep Timer -----
+let sleepTimeout = null;
+let sleepFadeInterval = null;
+let sleepMinutes = 0;
+let timerInterval = null;
+let elapsedSeconds = 0;
+
+// ----- Preset DB -----
+const db = new PresetDB();
+await db.init();
+
+// ----- Default Channel Configs -----
+const DEFAULT_CHANNELS = [
+    { id: 'rain', name: 'Rain', icon: '🌧️', type: 'rain', volume: 0.4, pan: 0, solo: false, mute: false },
+    { id: 'ocean', name: 'Ocean', icon: '🌊', type: 'ocean', volume: 0.3, pan: 0, solo: false, mute: false },
+    { id: 'fireplace', name: 'Fireplace', icon: '🔥', type: 'fireplace', volume: 0.3, pan: 0, solo: false, mute: false },
+    { id: 'wind', name: 'Wind', icon: '🌬️', type: 'wind', volume: 0.2, pan: 0, solo: false, mute: false },
+    { id: 'thunder', name: 'Thunder', icon: '⛈️', type: 'thunder', volume: 0.1, pan: 0, solo: false, mute: false },
+    { id: 'birds', name: 'Birds', icon: '🐦', type: 'birds', volume: 0.2, pan: 0, solo: false, mute: false },
+];
+
+// ----- Audio Synthesis Functions -----
+
+function createNoiseBuffer(context, type, duration = 2) {
     const sampleRate = context.sampleRate;
     const bufferSize = sampleRate * duration;
     const buffer = context.createBuffer(1, bufferSize, sampleRate);
     const data = buffer.getChannelData(0);
 
     if (type === 'white') {
-        for (let i = 0; i < bufferSize; i++) {
-            data[i] = (Math.random() * 2) - 1;
-        }
+        for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2) - 1;
     } else if (type === 'pink') {
-        // Simple pink noise approximation: filtered white noise
         let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
         for (let i = 0; i < bufferSize; i++) {
-            const white = (Math.random() * 2) - 1;
-            b0 = 0.99886 * b0 + white * 0.0555179;
-            b1 = 0.99332 * b1 + white * 0.0750759;
-            b2 = 0.96900 * b2 + white * 0.1538520;
-            b3 = 0.86650 * b3 + white * 0.3104856;
-            b4 = 0.55000 * b4 + white * 0.5329522;
-            b5 = 0.76197 * b5 + white * 0.0168980;
-            data[i] = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362;
-            b6 = white * 0.115926;
-            data[i] *= 0.11; // scale to avoid clipping
+            const w = (Math.random() * 2) - 1;
+            b0 = 0.99886 * b0 + w * 0.0555179;
+            b1 = 0.99332 * b1 + w * 0.0750759;
+            b2 = 0.96900 * b2 + w * 0.1538520;
+            b3 = 0.86650 * b3 + w * 0.3104856;
+            b4 = 0.55000 * b4 + w * 0.5329522;
+            b5 = 0.76197 * b5 + w * 0.0168980;
+            data[i] = b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362;
+            b6 = w * 0.115926;
+            data[i] *= 0.11;
         }
     } else if (type === 'brown') {
         let lastOut = 0;
         for (let i = 0; i < bufferSize; i++) {
-            const white = (Math.random() * 2) - 1;
-            const out = (lastOut + (0.02 * white)) / 1.02;
+            const w = (Math.random() * 2) - 1;
+            const out = (lastOut + (0.02 * w)) / 1.02;
             data[i] = out * 3.5;
             lastOut = out;
         }
@@ -62,314 +91,857 @@ function createNoiseBuffer(context, type = 'white', duration = 2) {
     return buffer;
 }
 
-// ----- Build Sound Chains -----
-function buildSoundChain(context, type) {
-    const buffer = createNoiseBuffer(context, type);
+function buildSoundChain(context, type, channelId) {
     const source = context.createBufferSource();
+    let buffer;
+
+    switch (type) {
+        case 'rain': buffer = createNoiseBuffer(context, 'white', 3); break;
+        case 'ocean': buffer = createNoiseBuffer(context, 'pink', 3); break;
+        case 'fireplace': buffer = createNoiseBuffer(context, 'brown', 3); break;
+        case 'wind': buffer = createNoiseBuffer(context, 'white', 3); break;
+        case 'thunder': buffer = createNoiseBuffer(context, 'brown', 3); break;
+        case 'birds': buffer = createNoiseBuffer(context, 'white', 1); break;
+        default: buffer = createNoiseBuffer(context, 'white', 2);
+    }
     source.buffer = buffer;
     source.loop = true;
 
     const gainNode = context.createGain();
     gainNode.gain.value = 0;
 
+    const panNode = context.createStereoPanner();
+    panNode.pan.value = 0;
+
+    // Analyser for VU meter
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 128;
+
+    // Filters & effects per channel
     let filterNode = null;
     let extraNodes = [];
 
-    if (type === 'white') {
-        // Rain: bandpass filter (1000Hz - 4000Hz) + slight modulation
-        filterNode = context.createBiquadFilter();
-        filterNode.type = 'bandpass';
-        filterNode.frequency.value = 2000;
-        filterNode.Q.value = 1.2;
-        // Add a small LFO for shimmer? Too complex for simplicity.
-        source.connect(filterNode);
-        filterNode.connect(gainNode);
-    } else if (type === 'pink') {
-        // Ocean: lowpass filter (200Hz) with resonance
-        filterNode = context.createBiquadFilter();
-        filterNode.type = 'lowpass';
-        filterNode.frequency.value = 250;
-        filterNode.Q.value = 0.8;
-        source.connect(filterNode);
-        filterNode.connect(gainNode);
-    } else if (type === 'brown') {
-        // Fireplace: highpass filter + separate crackle (added later)
-        filterNode = context.createBiquadFilter();
-        filterNode.type = 'highpass';
-        filterNode.frequency.value = 80;
-        filterNode.Q.value = 0.7;
-        source.connect(filterNode);
-        filterNode.connect(gainNode);
-    } else if (type === 'coffee') {
-        // Coffee: bandpass with a delay effect
-        filterNode = context.createBiquadFilter();
-        filterNode.type = 'bandpass';
-        filterNode.frequency.value = 600;
-        filterNode.Q.value = 1.5;
-        const delay = context.createDelay(1.0);
-        delay.delayTime.value = 0.15;
-        const feedback = context.createGain();
-        feedback.gain.value = 0.3;
-        const dryGain = context.createGain();
-        dryGain.gain.value = 0.6;
-        const wetGain = context.createGain();
-        wetGain.gain.value = 0.4;
-
-        source.connect(filterNode);
-        // Split: dry and wet
-        filterNode.connect(dryGain);
-        dryGain.connect(gainNode);
-        filterNode.connect(delay);
-        delay.connect(feedback);
-        feedback.connect(delay); // feedback loop
-        delay.connect(wetGain);
-        wetGain.connect(gainNode);
-        extraNodes = [delay, feedback, dryGain, wetGain];
+    switch (type) {
+        case 'rain': {
+            filterNode = context.createBiquadFilter();
+            filterNode.type = 'bandpass';
+            filterNode.frequency.value = 2000;
+            filterNode.Q.value = 1.5;
+            // LFO for intensity modulation
+            const lfo = context.createOscillator();
+            lfo.frequency.value = 0.5 + Math.random() * 0.3;
+            const lfoGain = context.createGain();
+            lfoGain.gain.value = 600;
+            lfo.connect(lfoGain);
+            lfoGain.connect(filterNode.frequency);
+            lfo.start();
+            extraNodes.push(lfo, lfoGain);
+            break;
+        }
+        case 'ocean': {
+            filterNode = context.createBiquadFilter();
+            filterNode.type = 'lowpass';
+            filterNode.frequency.value = 250;
+            filterNode.Q.value = 0.8;
+            const lfo = context.createOscillator();
+            lfo.frequency.value = 0.08;
+            const lfoGain = context.createGain();
+            lfoGain.gain.value = 80;
+            lfo.connect(lfoGain);
+            lfoGain.connect(filterNode.frequency);
+            lfo.start();
+            extraNodes.push(lfo, lfoGain);
+            break;
+        }
+        case 'fireplace': {
+            filterNode = context.createBiquadFilter();
+            filterNode.type = 'highpass';
+            filterNode.frequency.value = 100;
+            filterNode.Q.value = 0.7;
+            // Crackle generator: random bursts
+            const crackleGain = context.createGain();
+            crackleGain.gain.value = 0.15;
+            extraNodes.push(crackleGain);
+            // We'll trigger crackles in the animation loop
+            break;
+        }
+        case 'wind': {
+            filterNode = context.createBiquadFilter();
+            filterNode.type = 'lowpass';
+            filterNode.frequency.value = 400;
+            filterNode.Q.value = 1.2;
+            const lfo = context.createOscillator();
+            lfo.frequency.value = 0.15 + Math.random() * 0.1;
+            const lfoGain = context.createGain();
+            lfoGain.gain.value = 200;
+            lfo.connect(lfoGain);
+            lfoGain.connect(filterNode.frequency);
+            lfo.start();
+            extraNodes.push(lfo, lfoGain);
+            break;
+        }
+        case 'thunder': {
+            filterNode = context.createBiquadFilter();
+            filterNode.type = 'lowpass';
+            filterNode.frequency.value = 150;
+            filterNode.Q.value = 0.5;
+            const env = context.createGain();
+            env.gain.setValueAtTime(0, context.currentTime);
+            env.gain.linearRampToValueAtTime(0.8, context.currentTime + 0.5);
+            env.gain.exponentialRampToValueAtTime(0.01, context.currentTime + 4);
+            extraNodes.push(env);
+            break;
+        }
+        case 'birds': {
+            // FM synthesis: carrier + modulator
+            const carrier = context.createOscillator();
+            carrier.type = 'sine';
+            const modulator = context.createOscillator();
+            modulator.type = 'sine';
+            modulator.frequency.value = 60;
+            const modGain = context.createGain();
+            modGain.gain.value = 40;
+            const fmGain = context.createGain();
+            fmGain.gain.value = 0.3;
+            carrier.connect(fmGain);
+            modulator.connect(modGain);
+            modGain.connect(carrier.frequency);
+            // Envelope
+            const env = context.createGain();
+            env.gain.setValueAtTime(0, context.currentTime);
+            env.gain.linearRampToValueAtTime(0.5, context.currentTime + 0.05);
+            env.gain.exponentialRampToValueAtTime(0.01, context.currentTime + 0.3);
+            env.gain.linearRampToValueAtTime(0, context.currentTime + 0.5);
+            carrier.connect(env);
+            modulator.start();
+            carrier.start();
+            // We'll use a buffer source for looping, but for birds we can just use oscillators
+            // Actually, let's just use the carrier as the main source
+            extraNodes.push(carrier, modulator, modGain, env);
+            // Override source with carrier
+            return { source: carrier, gainNode, panNode, analyser, filterNode, extraNodes, type: 'birds' };
+        }
+        default: {
+            filterNode = null;
+        }
     }
 
-    return {
-        source,
-        gainNode,
-        filterNode,
-        extraNodes,
-        started: false,
-        bufferType: type,
-    };
+    // Routing: source -> filter -> gain -> pan -> analyser
+    if (filterNode) {
+        source.connect(filterNode);
+        filterNode.connect(gainNode);
+    } else {
+        source.connect(gainNode);
+    }
+    gainNode.connect(panNode);
+    panNode.connect(analyser);
+
+    return { source, gainNode, panNode, analyser, filterNode, extraNodes, type };
 }
 
-// ----- Initialize Sounds -----
-function initSounds() {
-    if (!audioCtx) return;
+// ----- Create Channel -----
+function createChannel(channelConfig) {
+    const id = channelConfig.id || `ch-${Date.now()}`;
+    const type = channelConfig.type || 'white';
+    const chain = buildSoundChain(audioCtx, type, id);
+    // Connect analyser to master
+    chain.analyser.connect(masterGainNode);
+    // Store nodes
+    channelNodes[id] = chain;
+    // Set initial volume/pan
+    chain.gainNode.gain.value = channelConfig.volume || 0;
+    chain.panNode.pan.value = channelConfig.pan || 0;
+    // Store config
+    channels.push({ ...channelConfig, id, type });
+    return id;
+}
 
-    const configs = {
-        rain: { type: 'white' },
-        ocean: { type: 'pink' },
-        fireplace: { type: 'brown' },
-        coffee: { type: 'coffee' },
-    };
+// ----- Init Audio Context -----
+function initAudio() {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-    Object.keys(configs).forEach((key) => {
-        const chain = buildSoundChain(audioCtx, configs[key].type);
-        // Connect gain to master
-        chain.gainNode.connect(masterGainNode);
-        sounds[key] = chain;
-        // Update status
-        statusEls[key].textContent = '⏸';
-        statusEls[key].classList.remove('active');
+    // Master Gain
+    masterGainNode = audioCtx.createGain();
+    masterGainNode.gain.value = parseFloat(masterVolumeSlider.value);
+
+    // EQ Nodes
+    eqLowNode = audioCtx.createBiquadFilter();
+    eqLowNode.type = 'lowshelf';
+    eqLowNode.frequency.value = 200;
+    eqLowNode.gain.value = 0;
+    eqMidNode = audioCtx.createBiquadFilter();
+    eqMidNode.type = 'peaking';
+    eqMidNode.frequency.value = 1000;
+    eqMidNode.Q.value = 1;
+    eqMidNode.gain.value = 0;
+    eqHighNode = audioCtx.createBiquadFilter();
+    eqHighNode.type = 'highshelf';
+    eqHighNode.frequency.value = 5000;
+    eqHighNode.gain.value = 0;
+
+    // Reverb (Convolver with generated impulse)
+    reverbNode = audioCtx.createConvolver();
+    const irLength = audioCtx.sampleRate * 2;
+    const irBuffer = audioCtx.createBuffer(2, irLength, audioCtx.sampleRate);
+    const l = irBuffer.getChannelData(0);
+    const r = irBuffer.getChannelData(1);
+    const decay = 1.5;
+    for (let i = 0; i < irLength; i++) {
+        const env = Math.exp(-i / (audioCtx.sampleRate * decay));
+        const val = (Math.random() * 2 - 1) * env;
+        l[i] = val * 0.6;
+        r[i] = val * 0.6;
+    }
+    reverbNode.buffer = irBuffer;
+
+    reverbGainNode = audioCtx.createGain();
+    reverbGainNode.gain.value = parseFloat(masterReverbSlider.value);
+    dryGainNode = audioCtx.createGain();
+    dryGainNode.gain.value = 1 - parseFloat(masterReverbSlider.value);
+
+    // Master Analyser for visualizer
+    masterAnalyser = audioCtx.createAnalyser();
+    masterAnalyser.fftSize = 1024;
+
+    // Routing: masterGain -> split -> dry/wet
+    masterGainNode.connect(dryGainNode);
+    masterGainNode.connect(reverbGainNode);
+    reverbGainNode.connect(reverbNode);
+
+    // Dry + Wet -> EQ -> Analyser -> Destination
+    dryGainNode.connect(eqLowNode);
+    reverbNode.connect(eqLowNode);
+    eqLowNode.connect(eqMidNode);
+    eqMidNode.connect(eqHighNode);
+    eqHighNode.connect(masterAnalyser);
+    masterAnalyser.connect(audioCtx.destination);
+
+    // Create default channels
+    DEFAULT_CHANNELS.forEach(cfg => createChannel(cfg));
+
+    // Start visualizer
+    drawVisualizer();
+}
+
+// ----- Render Channels UI -----
+function renderChannels() {
+    channelsContainer.innerHTML = '';
+    channels.forEach((ch, index) => {
+        const strip = document.createElement('div');
+        strip.className = `channel-strip ${ch.type === 'custom' ? 'custom-channel' : ''}`;
+        strip.draggable = true;
+        strip.dataset.index = index;
+        strip.dataset.id = ch.id;
+
+        const isSolo = ch.solo || false;
+        const isMute = ch.mute || false;
+
+        strip.innerHTML = `
+            <div class="drag-handle">⠿</div>
+            <button class="channel-delete" data-id="${ch.id}" title="Remove">✕</button>
+            <div class="channel-icon">${ch.icon || '🔊'}</div>
+            <div class="channel-name">${ch.name}</div>
+            <div class="channel-controls">
+                <label>Vol</label>
+                <input type="range" class="ch-volume" data-id="${ch.id}" min="0" max="1" step="0.01" value="${ch.volume || 0}" />
+                <label>Pan</label>
+                <input type="range" class="ch-pan" data-id="${ch.id}" min="-1" max="1" step="0.01" value="${ch.pan || 0}" />
+            </div>
+            <div class="vu-meter"><div class="vu-fill" id="vu-${ch.id}" style="width:0%"></div></div>
+            <div class="channel-actions">
+                <button class="ch-solo ${isSolo ? 'solo-active' : ''}" data-id="${ch.id}">Solo</button>
+                <button class="ch-mute ${isMute ? 'mute-active' : ''}" data-id="${ch.id}">Mute</button>
+            </div>
+        `;
+        channelsContainer.appendChild(strip);
+    });
+
+    // Attach events
+    attachChannelEvents();
+    attachDragEvents();
+}
+
+// ----- Attach Channel Events -----
+function attachChannelEvents() {
+    // Volume
+    document.querySelectorAll('.ch-volume').forEach(el => {
+        el.addEventListener('input', () => {
+            const id = el.dataset.id;
+            const val = parseFloat(el.value);
+            const ch = channels.find(c => c.id === id);
+            if (ch) ch.volume = val;
+            if (channelNodes[id]) {
+                channelNodes[id].gainNode.gain.setValueAtTime(val, audioCtx.currentTime);
+            }
+        });
+    });
+
+    // Pan
+    document.querySelectorAll('.ch-pan').forEach(el => {
+        el.addEventListener('input', () => {
+            const id = el.dataset.id;
+            const val = parseFloat(el.value);
+            const ch = channels.find(c => c.id === id);
+            if (ch) ch.pan = val;
+            if (channelNodes[id]) {
+                channelNodes[id].panNode.pan.setValueAtTime(val, audioCtx.currentTime);
+            }
+        });
+    });
+
+    // Solo
+    document.querySelectorAll('.ch-solo').forEach(el => {
+        el.addEventListener('click', () => {
+            const id = el.dataset.id;
+            const ch = channels.find(c => c.id === id);
+            if (!ch) return;
+            const isSolo = !ch.solo;
+            // If soloing, mute all others
+            if (isSolo) {
+                channels.forEach(c => {
+                    if (c.id !== id) {
+                        c.solo = false;
+                        c.mute = true;
+                        if (channelNodes[c.id]) {
+                            channelNodes[c.id].gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+                        }
+                    }
+                });
+                ch.solo = true;
+                ch.mute = false;
+                if (channelNodes[id]) {
+                    channelNodes[id].gainNode.gain.setValueAtTime(ch.volume, audioCtx.currentTime);
+                }
+            } else {
+                // Un-solo: unmute all
+                ch.solo = false;
+                channels.forEach(c => {
+                    c.mute = false;
+                    if (channelNodes[c.id]) {
+                        channelNodes[c.id].gainNode.gain.setValueAtTime(c.volume, audioCtx.currentTime);
+                    }
+                });
+            }
+            renderChannels();
+        });
+    });
+
+    // Mute
+    document.querySelectorAll('.ch-mute').forEach(el => {
+        el.addEventListener('click', () => {
+            const id = el.dataset.id;
+            const ch = channels.find(c => c.id === id);
+            if (!ch) return;
+            ch.mute = !ch.mute;
+            if (ch.mute) {
+                if (channelNodes[id]) {
+                    channelNodes[id].gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+                }
+            } else {
+                if (channelNodes[id]) {
+                    channelNodes[id].gainNode.gain.setValueAtTime(ch.volume, audioCtx.currentTime);
+                }
+            }
+            renderChannels();
+        });
+    });
+
+    // Delete
+    document.querySelectorAll('.channel-delete').forEach(el => {
+        el.addEventListener('click', () => {
+            const id = el.dataset.id;
+            const ch = channels.find(c => c.id === id);
+            if (!ch || ch.type === 'rain' || ch.type === 'ocean' || ch.type === 'fireplace' || ch.type === 'wind' || ch.type === 'thunder' || ch.type === 'birds') {
+                alert('Cannot delete built-in sounds.');
+                return;
+            }
+            if (confirm(`Delete "${ch.name}"?`)) {
+                // Disconnect nodes
+                if (channelNodes[id]) {
+                    try {
+                        channelNodes[id].source.stop();
+                        channelNodes[id].source.disconnect();
+                        channelNodes[id].gainNode.disconnect();
+                        channelNodes[id].panNode.disconnect();
+                        channelNodes[id].analyser.disconnect();
+                    } catch (e) {}
+                    delete channelNodes[id];
+                }
+                channels = channels.filter(c => c.id !== id);
+                renderChannels();
+            }
+        });
     });
 }
 
-// ----- Start / Stop All -----
-function startAllSounds() {
-    const now = audioCtx.currentTime;
-    Object.keys(sounds).forEach((key) => {
-        const chain = sounds[key];
-        if (!chain.started) {
-            chain.source.start(0);
-            chain.started = true;
-        }
-        // Set gain from slider
-        const val = parseFloat(sliders[key].value);
-        chain.gainNode.gain.setValueAtTime(val, now);
-        statusEls[key].textContent = '▶';
-        statusEls[key].classList.add('active');
+// ----- Drag to Reorder -----
+function attachDragEvents() {
+    const strips = document.querySelectorAll('.channel-strip');
+    let dragIndex = null;
+
+    strips.forEach((strip, idx) => {
+        strip.addEventListener('dragstart', (e) => {
+            dragIndex = idx;
+            strip.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+        });
+        strip.addEventListener('dragend', () => {
+            strip.classList.remove('dragging');
+            document.querySelectorAll('.channel-strip').forEach(s => s.style.border = '');
+        });
+        strip.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            document.querySelectorAll('.channel-strip').forEach(s => s.style.border = '');
+            strip.style.border = `2px solid var(--accent)`;
+        });
+        strip.addEventListener('dragleave', () => {
+            strip.style.border = '';
+        });
+        strip.addEventListener('drop', (e) => {
+            e.preventDefault();
+            strip.style.border = '';
+            if (dragIndex === null || dragIndex === idx) return;
+            const [moved] = channels.splice(dragIndex, 1);
+            channels.splice(idx, 0, moved);
+            renderChannels();
+            // Re-apply solo/mute states after re-render
+            channels.forEach(c => {
+                if (c.solo) {
+                    channels.forEach(cc => { if (cc.id !== c.id) cc.mute = true; });
+                }
+                if (c.mute && channelNodes[c.id]) {
+                    channelNodes[c.id].gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+                }
+            });
+        });
     });
-    isPlaying = true;
-    playBtn.textContent = '⏹ Stop';
-    playBtn.classList.add('playing');
 }
 
-function stopAllSounds() {
-    Object.keys(sounds).forEach((key) => {
-        const chain = sounds[key];
-        if (chain.started) {
-            chain.source.stop(0);
-            chain.started = false;
-        }
-        chain.gainNode.gain.value = 0;
-        statusEls[key].textContent = '⏸';
-        statusEls[key].classList.remove('active');
-    });
-    isPlaying = false;
-    playBtn.textContent = '▶ Play';
-    playBtn.classList.remove('playing');
-}
+// ----- Master Controls -----
+masterVolumeSlider.addEventListener('input', () => {
+    if (masterGainNode) {
+        masterGainNode.gain.setValueAtTime(parseFloat(masterVolumeSlider.value), audioCtx.currentTime);
+    }
+});
 
-// ----- Rebuild after stop (because source can't be restarted) -----
-function rebuildAndPlay() {
-    if (!audioCtx) return;
-    // Clean up old sounds
-    Object.keys(sounds).forEach((key) => {
-        try {
-            sounds[key].source.disconnect();
-            sounds[key].gainNode.disconnect();
-            if (sounds[key].filterNode) sounds[key].filterNode.disconnect();
-            sounds[key].extraNodes?.forEach(n => n.disconnect());
-        } catch (e) {}
-    });
+masterReverbSlider.addEventListener('input', () => {
+    const val = parseFloat(masterReverbSlider.value);
+    if (reverbGainNode) reverbGainNode.gain.setValueAtTime(val, audioCtx.currentTime);
+    if (dryGainNode) dryGainNode.gain.setValueAtTime(1 - val, audioCtx.currentTime);
+});
 
-    // Re-init
-    initSounds();
-    // Start with current slider values
-    Object.keys(sliders).forEach((key) => {
-        const val = parseFloat(sliders[key].value);
-        sounds[key].gainNode.gain.value = val;
-        if (val > 0) {
-            statusEls[key].textContent = '▶';
-            statusEls[key].classList.add('active');
-        }
-    });
-    isPlaying = true;
-    playBtn.textContent = '⏹ Stop';
-    playBtn.classList.add('playing');
-}
+eqLowSlider.addEventListener('input', () => {
+    if (eqLowNode) eqLowNode.gain.setValueAtTime(parseFloat(eqLowSlider.value), audioCtx.currentTime);
+});
+eqMidSlider.addEventListener('input', () => {
+    if (eqMidNode) eqMidNode.gain.setValueAtTime(parseFloat(eqMidSlider.value), audioCtx.currentTime);
+});
+eqHighSlider.addEventListener('input', () => {
+    if (eqHighNode) eqHighNode.gain.setValueAtTime(parseFloat(eqHighSlider.value), audioCtx.currentTime);
+});
 
-// ----- Toggle Play -----
-function togglePlay() {
+// ----- Play / Pause -----
+playBtn.addEventListener('click', () => {
     if (!audioCtx) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        masterGainNode = audioCtx.createGain();
-        masterGainNode.gain.value = parseFloat(masterGainSlider.value);
-        masterGainNode.connect(audioCtx.destination);
-        initSounds();
-    }
-
-    if (audioCtx.state === 'suspended') {
+        initAudio();
         audioCtx.resume();
+        // Start all sources
+        Object.values(channelNodes).forEach(chain => {
+            if (chain.source && chain.type !== 'birds') {
+                try { chain.source.start(0); } catch (e) {}
+            }
+        });
+        isPlaying = true;
+        playBtn.textContent = '⏹ Stop';
+        playBtn.classList.add('playing');
+        startTimer();
+        return;
     }
 
     if (isPlaying) {
-        stopAllSounds();
-        // Reset sources so they can be restarted
-        Object.keys(sounds).forEach((key) => {
-            const chain = sounds[key];
-            if (chain.source) {
+        // Stop
+        Object.values(channelNodes).forEach(chain => {
+            if (chain.source && chain.type !== 'birds') {
                 try { chain.source.stop(0); } catch (e) {}
-                chain.source = null;
+            }
+            if (chain.source && chain.type === 'birds') {
+                // Birds are oscillators, just disconnect
+                try { chain.source.disconnect(); } catch (e) {}
             }
         });
-        // Rebuild sources
-        Object.keys(sounds).forEach((key) => {
-            const config = { white: 'white', pink: 'pink', brown: 'brown', coffee: 'coffee' };
-            const type = key === 'rain' ? 'white' : key === 'ocean' ? 'pink' : key === 'fireplace' ? 'brown' : 'coffee';
-            const newChain = buildSoundChain(audioCtx, type);
-            newChain.gainNode.connect(masterGainNode);
-            // copy gain value
-            const val = parseFloat(sliders[key].value);
-            newChain.gainNode.gain.value = val;
-            // replace
-            sounds[key] = newChain;
-            statusEls[key].textContent = '⏸';
-            statusEls[key].classList.remove('active');
+        // Rebuild sources for next play
+        Object.keys(channelNodes).forEach(id => {
+            const ch = channels.find(c => c.id === id);
+            if (!ch) return;
+            const chain = channelNodes[id];
+            if (chain.type !== 'birds') {
+                const newChain = buildSoundChain(audioCtx, chain.type, id);
+                newChain.gainNode.gain.value = ch.mute ? 0 : ch.volume;
+                newChain.panNode.pan.value = ch.pan || 0;
+                newChain.analyser.connect(masterGainNode);
+                // Copy extra nodes
+                if (chain.filterNode) {
+                    chain.filterNode.disconnect();
+                }
+                channelNodes[id] = newChain;
+            }
         });
         isPlaying = false;
         playBtn.textContent = '▶ Play';
         playBtn.classList.remove('playing');
+        stopTimer();
+        clearSleep();
+    } else {
+        audioCtx.resume();
+        Object.values(channelNodes).forEach(chain => {
+            if (chain.source && chain.type !== 'birds') {
+                try { chain.source.start(0); } catch (e) {}
+            }
+        });
+        isPlaying = true;
+        playBtn.textContent = '⏹ Stop';
+        playBtn.classList.add('playing');
+        startTimer();
+    }
+});
+
+// ----- Timer -----
+function startTimer() {
+    if (timerInterval) clearInterval(timerInterval);
+    elapsedSeconds = 0;
+    timerInterval = setInterval(() => {
+        elapsedSeconds++;
+        const mins = String(Math.floor(elapsedSeconds / 60)).padStart(2, '0');
+        const secs = String(elapsedSeconds % 60).padStart(2, '0');
+        timerDisplay.textContent = `${mins}:${secs}`;
+    }, 1000);
+}
+
+function stopTimer() {
+    if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+    }
+}
+
+// ----- Sleep Timer -----
+sleepSetBtn.addEventListener('click', () => {
+    const mins = parseInt(sleepMinutesInput.value);
+    if (isNaN(mins) || mins <= 0) {
+        clearSleep();
         return;
     }
-
-    // Start playing
-    startAllSounds();
-}
-
-// ----- Slider Events -----
-Object.keys(sliders).forEach((key) => {
-    sliders[key].addEventListener('input', () => {
-        const val = parseFloat(sliders[key].value);
-        if (sounds[key] && isPlaying) {
-            sounds[key].gainNode.gain.setValueAtTime(val, audioCtx.currentTime);
-        }
-        // If not playing but we have a chain, still update the value for when it starts
-        if (sounds[key]) {
-            sounds[key].gainNode.gain.value = val;
-        }
-        if (val > 0 && isPlaying) {
-            statusEls[key].textContent = '▶';
-            statusEls[key].classList.add('active');
-        } else if (val === 0 && isPlaying) {
-            statusEls[key].textContent = '⏸';
-            statusEls[key].classList.remove('active');
-        }
-    });
+    sleepMinutes = mins;
+    sleepStatus.textContent = `💤 ${mins} min`;
+    sleepStatus.style.color = 'var(--warning)';
+    // Clear existing
+    if (sleepTimeout) clearTimeout(sleepTimeout);
+    if (sleepFadeInterval) clearInterval(sleepFadeInterval);
+    // Set timeout
+    sleepTimeout = setTimeout(() => {
+        fadeOutAndStop();
+    }, mins * 60 * 1000);
 });
 
-// ----- Master Volume -----
-masterGainSlider.addEventListener('input', () => {
-    if (masterGainNode) {
-        masterGainNode.gain.value = parseFloat(masterGainSlider.value);
-    }
-});
-
-// ----- Play Button -----
-playBtn.addEventListener('click', togglePlay);
-
-// ----- Visualizer (Analyser Node) -----
-let analyser = null;
-
-function setupVisualizer() {
-    if (!audioCtx) return;
-    analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 256;
-    // We connect master gain to analyser, but we already have masterGainNode connected to destination.
-    // We'll create a separate connection for visualization.
-    // Actually, we can connect a new gain node or just use an AnalyserNode in parallel.
-    // Let's create an analyser and connect masterGainNode to it, and then to destination.
-    // But we already have masterGainNode connected to destination. We'll disconnect and reconnect.
-    if (masterGainNode) {
-        masterGainNode.disconnect();
-        masterGainNode.connect(analyser);
-        analyser.connect(audioCtx.destination);
-    }
+function clearSleep() {
+    if (sleepTimeout) { clearTimeout(sleepTimeout); sleepTimeout = null; }
+    if (sleepFadeInterval) { clearInterval(sleepFadeInterval); sleepFadeInterval = null; }
+    sleepMinutes = 0;
+    sleepStatus.textContent = 'Off';
+    sleepStatus.style.color = 'var(--text-muted)';
+    sleepMinutesInput.value = 0;
 }
 
-// Override init to include analyser
-const originalInit = initSounds;
-initSounds = function() {
-    if (!audioCtx) return;
-    if (!analyser) {
-        setupVisualizer();
-    }
-    originalInit.call(this);
-};
+function fadeOutAndStop() {
+    if (!masterGainNode) return;
+    const startGain = masterGainNode.gain.value;
+    const duration = 60; // seconds
+    const steps = 60;
+    let step = 0;
+    const stepSize = startGain / steps;
+    sleepFadeInterval = setInterval(() => {
+        step++;
+        const newGain = Math.max(0, startGain - step * stepSize);
+        masterGainNode.gain.setValueAtTime(newGain, audioCtx.currentTime);
+        if (step >= steps || newGain <= 0) {
+            clearInterval(sleepFadeInterval);
+            sleepFadeInterval = null;
+            // Stop playback
+            if (isPlaying) playBtn.click();
+            masterGainNode.gain.setValueAtTime(startGain, audioCtx.currentTime);
+            clearSleep();
+            sleepStatus.textContent = '⏰ Timer ended';
+            sleepStatus.style.color = 'var(--success)';
+        }
+    }, 1000 / steps);
+}
 
-// Draw visualizer
+// ----- Visualizer (Oscilloscope + Spectrogram) -----
 function drawVisualizer() {
-    if (!analyser) {
+    if (!masterAnalyser) {
         requestAnimationFrame(drawVisualizer);
         return;
     }
-    const dataArray = new Uint8Array(analyser.frequencyBinCount);
-    analyser.getByteFrequencyData(dataArray);
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const width = canvas.width;
-    const height = canvas.height;
-    const barWidth = (width / dataArray.length) * 2.5;
-    let x = 0;
+    const canvas = visualizerCanvas;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width;
+    const H = canvas.height;
 
-    for (let i = 0; i < dataArray.length; i++) {
-        const value = dataArray[i] / 255;
-        const barHeight = value * height * 0.9;
-        const hue = 200 + value * 40;
-        ctx.fillStyle = `hsl(${hue}, 70%, 60%)`;
-        ctx.fillRect(x, height - barHeight, barWidth, barHeight);
-        x += barWidth + 1;
+    // Set canvas size
+    const rect = canvas.getBoundingClientRect();
+    if (canvas.width !== rect.width * devicePixelRatio) {
+        canvas.width = rect.width * devicePixelRatio;
+        canvas.height = rect.height * devicePixelRatio;
+        ctx.scale(devicePixelRatio, devicePixelRatio);
     }
+
+    const w = canvas.width / devicePixelRatio;
+    const h = canvas.height / devicePixelRatio;
+
+    ctx.clearRect(0, 0, w, h);
+
+    // ---- Top: Oscilloscope (Time Domain) ----
+    const timeData = new Float32Array(masterAnalyser.fftSize);
+    masterAnalyser.getFloatTimeDomainData(timeData);
+
+    ctx.beginPath();
+    ctx.strokeStyle = '#4ade80';
+    ctx.lineWidth = 1.5;
+    const halfH = h / 2;
+    const step = w / timeData.length;
+    for (let i = 0; i < timeData.length; i++) {
+        const x = i * step;
+        const y = halfH + timeData[i] * halfH * 0.9;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // ---- Bottom: Spectrogram (Frequency) ----
+    const freqData = new Uint8Array(masterAnalyser.frequencyBinCount);
+    masterAnalyser.getByteFrequencyData(freqData);
+
+    const spectrogramHeight = h * 0.4;
+    const specY = h * 0.6;
+    const grad = ctx.createLinearGradient(0, specY, 0, specY + spectrogramHeight);
+    grad.addColorStop(0, 'rgba(59, 130, 246, 1)');
+    grad.addColorStop(0.3, 'rgba(139, 92, 246, 1)');
+    grad.addColorStop(0.6, 'rgba(236, 72, 153, 1)');
+    grad.addColorStop(1, 'rgba(239, 68, 68, 0.5)');
+
+    const barW = w / freqData.length;
+    for (let i = 0; i < freqData.length; i++) {
+        const value = freqData[i] / 255;
+        const barH = value * spectrogramHeight;
+        ctx.fillStyle = grad;
+        ctx.fillRect(i * barW, specY + spectrogramHeight - barH, barW, barH);
+    }
+
     requestAnimationFrame(drawVisualizer);
 }
 
-// Handle resize for canvas
-function resizeCanvas() {
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * window.devicePixelRatio;
-    canvas.height = rect.height * window.devicePixelRatio;
-    ctx.scale(1, 1);
+// ----- Update VU Meters -----
+function updateVUMeters() {
+    if (!isPlaying) {
+        requestAnimationFrame(updateVUMeters);
+        return;
+    }
+    Object.keys(channelNodes).forEach(id => {
+        const chain = channelNodes[id];
+        if (!chain || !chain.analyser) return;
+        const data = new Uint8Array(chain.analyser.fftSize);
+        chain.analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) {
+            const val = (data[i] - 128) / 128;
+            sum += val * val;
+        }
+        const rms = Math.sqrt(sum / data.length);
+        const percent = Math.min(100, rms * 300);
+        const vu = document.getElementById(`vu-${id}`);
+        if (vu) vu.style.width = `${percent}%`;
+    });
+    requestAnimationFrame(updateVUMeters);
 }
-window.addEventListener('resize', resizeCanvas);
 
-// ---- Start visualizer loop ----
-resizeCanvas();
-drawVisualizer();
+// ----- Presets (IndexedDB) -----
+function getCurrentState() {
+    return {
+        channels: channels.map(c => ({
+            id: c.id, name: c.name, icon: c.icon, type: c.type,
+            volume: c.volume, pan: c.pan, solo: c.solo, mute: c.mute
+        })),
+        master: {
+            volume: parseFloat(masterVolumeSlider.value),
+            reverb: parseFloat(masterReverbSlider.value),
+            eqLow: parseFloat(eqLowSlider.value),
+            eqMid: parseFloat(eqMidSlider.value),
+            eqHigh: parseFloat(eqHighSlider.value),
+        }
+    };
+}
 
-// ---- Autoplay policy: need user gesture. Clicking play handles it.
-console.log('Ambient Sound Mixer ready! Click Play to start.');
+function applyState(state) {
+    // Update channels
+    state.channels.forEach(saved => {
+        const existing = channels.find(c => c.id === saved.id);
+        if (existing) {
+            existing.volume = saved.volume;
+            existing.pan = saved.pan;
+            existing.solo = saved.solo;
+            existing.mute = saved.mute;
+            if (channelNodes[saved.id]) {
+                channelNodes[saved.id].gainNode.gain.setValueAtTime(
+                    saved.mute ? 0 : saved.volume,
+                    audioCtx.currentTime
+                );
+                channelNodes[saved.id].panNode.pan.setValueAtTime(saved.pan, audioCtx.currentTime);
+            }
+        }
+    });
+    // Master
+    masterVolumeSlider.value = state.master.volume;
+    masterGainNode.gain.setValueAtTime(state.master.volume, audioCtx.currentTime);
+    masterReverbSlider.value = state.master.reverb;
+    reverbGainNode.gain.setValueAtTime(state.master.reverb, audioCtx.currentTime);
+    dryGainNode.gain.setValueAtTime(1 - state.master.reverb, audioCtx.currentTime);
+    eqLowSlider.value = state.master.eqLow;
+    eqLowNode.gain.setValueAtTime(state.master.eqLow, audioCtx.currentTime);
+    eqMidSlider.value = state.master.eqMid;
+    eqMidNode.gain.setValueAtTime(state.master.eqMid, audioCtx.currentTime);
+    eqHighSlider.value = state.master.eqHigh;
+    eqHighNode.gain.setValueAtTime(state.master.eqHigh, audioCtx.currentTime);
+
+    renderChannels();
+}
+
+presetSaveBtn.addEventListener('click', async () => {
+    const name = prompt('Enter preset name:');
+    if (!name || !name.trim()) return;
+    const state = getCurrentState();
+    try {
+        await db.savePreset(name.trim(), state);
+        alert(`✅ Preset "${name.trim()}" saved!`);
+    } catch (err) {
+        alert('❌ Failed to save preset.');
+        console.error(err);
+    }
+});
+
+presetLoadBtn.addEventListener('click', async () => {
+    try {
+        const presets = await db.loadPresets();
+        if (presets.length === 0) {
+            alert('No presets saved yet.');
+            return;
+        }
+        // Show modal with list
+        const modal = document.createElement('div');
+        modal.className = 'modal visible';
+        modal.innerHTML = `
+            <div class="modal-overlay"></div>
+            <div class="modal-content">
+                <button class="modal-close">✕</button>
+                <h2>📂 Load Preset</h2>
+                <div class="modal-list">
+                    ${presets.map(p => `
+                        <div class="modal-list-item" data-id="${p.id}">
+                            <span>${p.name}</span>
+                            <div>
+                                <small style="color:var(--text-muted)">${new Date(p.createdAt).toLocaleDateString()}</small>
+                                <button class="delete-preset" data-id="${p.id}">✕</button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        modal.querySelector('.modal-close').addEventListener('click', () => modal.remove());
+        modal.querySelector('.modal-overlay').addEventListener('click', () => modal.remove());
+
+        modal.querySelectorAll('.modal-list-item').forEach(el => {
+            el.addEventListener('click', async () => {
+                const id = parseInt(el.dataset.id);
+                const preset = presets.find(p => p.id === id);
+                if (preset) {
+                    applyState(preset.data);
+                    modal.remove();
+                    alert(`✅ Loaded "${preset.name}"`);
+                }
+            });
+        });
+
+        modal.querySelectorAll('.delete-preset').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const id = parseInt(btn.dataset.id);
+                if (confirm('Delete this preset?')) {
+                    await db.deletePreset(id);
+                    modal.remove();
+                    presetLoadBtn.click(); // re-open
+                }
+            });
+        });
+
+    } catch (err) {
+        alert('❌ Failed to load presets.');
+        console.error(err);
+    }
+});
+
+// ----- Export / Import JSON -----
+exportBtn.addEventListener('click', () => {
+    const state = getCurrentState();
+    const json = JSON.stringify(state, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ambient-preset-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+});
+
+importBtn.addEventListener('click', () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            try {
+                const state = JSON.parse(ev.target.result);
+                if (state.channels && state.master) {
+                    applyState(state);
+                    alert('✅ Preset imported successfully!');
+                } else {
+                    throw new Error('Invalid format');
+                }
+            } catch (err) {
+                alert('❌ Invalid file format.');
+            }
+        };
+        reader.readAsText(file);
+    };
+    input.click();
+});
+
+// ----- Initialize App -----
+function init() {
+    // Start audio context on user gesture (play button handles this)
+    // Initial render
+    renderChannels();
+    // Start VU meter loop
+    updateVUMeters();
+    // Load from DB on startup? Optional.
+    console.log('🎧 Ambient Pro Studio loaded!');
+}
+
+init();
