@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>🌿 Ambient Sound Mixer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,600;14..32,700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header>
+            <h1>🌿 Ambient Mixer</h1>
+            <p>Mix your perfect background soundscape</p>
+        </header>
+
+        <!-- Master Controls -->
+        <div class="master-controls">
+            <button id="play-btn" class="btn-play">▶ Play</button>
+            <div class="master-volume">
+                <label for="master-gain">Master</label>
+                <input type="range" id="master-gain" min="0" max="1" step="0.01" value="0.7" />
+            </div>
+        </div>
+
+        <!-- Sound Channels -->
+        <div class="channels" id="channels-container">
+            <!-- Channel 1: Rain -->
+            <div class="channel" data-sound="rain">
+                <div class="channel-icon">🌧️</div>
+                <div class="channel-info">
+                    <span class="channel-name">Rain</span>
+                    <span class="channel-status" id="status-rain">⏸</span>
+                </div>
+                <input type="range" class="channel-slider" id="slider-rain" min="0" max="1" step="0.01" value="0.3" />
+            </div>
+            <!-- Channel 2: Ocean -->
+            <div class="channel" data-sound="ocean">
+                <div class="channel-icon">🌊</div>
+                <div class="channel-info">
+                    <span class="channel-name">Ocean</span>
+                    <span class="channel-status" id="status-ocean">⏸</span>
+                </div>
+                <input type="range" class="channel-slider" id="slider-ocean" min="0" max="1" step="0.01" value="0.3" />
+            </div>
+            <!-- Channel 3: Fireplace -->
+            <div class="channel" data-sound="fireplace">
+                <div class="channel-icon">🔥</div>
+                <div class="channel-info">
+                    <span class="channel-name">Fireplace</span>
+                    <span class="channel-status" id="status-fireplace">⏸</span>
+                </div>
+                <input type="range" class="channel-slider" id="slider-fireplace" min="0" max="1" step="0.01" value="0.3" />
+            </div>
+            <!-- Channel 4: Coffee Shop -->
+            <div class="channel" data-sound="coffee">
+                <div class="channel-icon">☕</div>
+                <div class="channel-info">
+                    <span class="channel-name">Coffee Shop</span>
+                    <span class="channel-status" id="status-coffee">⏸</span>
+                </div>
+                <input type="range" class="channel-slider" id="slider-coffee" min="0" max="1" step="0.01" value="0.3" />
+            </div>
+        </div>
+
+        <!-- Visualizer / Waveform -->
+        <div class="visualizer">
+            <canvas id="visualizer-canvas"></canvas>
+        </div>
+
+        <!-- Footer -->
+        <footer>
+            <p>🎧 Grab your headphones for the full experience</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
